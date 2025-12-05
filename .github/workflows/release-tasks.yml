@@ -8,21 +8,38 @@ on:
     tags:
       # The regex support here is limited, so just match everything that starts with llvmorg- and filter later.
       - 'llvmorg-*'
+  # ADDED: Manual trigger with input
+  workflow_dispatch:
+    inputs:
+      release-version:
+        description: 'Release Version (e.g. 19.1.0)'
+        required: true
+        type: string
 
 jobs:
   validate-tag:
     name: Validate Tag
     runs-on: ubuntu-24.04
-    if: github.repository == 'llvm/llvm-project'
+    # REMOVED: if: github.repository == 'llvm/llvm-project'
     outputs:
       release-version: ${{ steps.validate-tag.outputs.release-version }}
     steps:
       - name: Validate Tag
         id: validate-tag
         run: |
-          echo "${{ github.ref_name }}" | grep -e '^llvmorg-[0-9]\+\.[0-9]\+\.[0-9]\+\(-rc[0-9]\+\)\?$'
-          release_version=$(echo "${{ github.ref_name }}" | sed 's/llvmorg-//g')
-          echo "release-version=$release_version" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Logic for manual trigger
+            echo "Manual trigger detected. Using input version."
+            RELEASE_VER="${{ inputs.release-version }}"
+          else
+            # Logic for tag push
+            echo "Tag push detected checking ref: ${{ github.ref_name }}"
+            echo "${{ github.ref_name }}" | grep -e '^llvmorg-[0-9]\+\.[0-9]\+\.[0-9]\+\(-rc[0-9]\+\)\?$'
+            RELEASE_VER=$(echo "${{ github.ref_name }}" | sed 's/llvmorg-//g')
+          fi
+          
+          echo "Determined Release Version: $RELEASE_VER"
+          echo "release-version=$RELEASE_VER" >> "$GITHUB_OUTPUT"
 
   release-create:
     name: Create a New Release
@@ -46,6 +63,7 @@ jobs:
           USER_TOKEN: ${{ secrets.RELEASE_TASKS_USER_TOKEN }}
         run: |
           ./llvm/utils/release/./github-upload-release.py --token "$GITHUB_TOKEN" --release ${{ needs.validate-tag.outputs.release-version }} --user ${{ github.actor }} --user-token "$USER_TOKEN" create
+  
   release-documentation:
     name: Build and Upload Release Documentation
     needs:
